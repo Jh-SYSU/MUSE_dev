@@ -23,7 +23,7 @@ from torch_geometric.utils import negative_sampling, add_self_loops
 from config import parse_args, Config
 from utils import write_log, Metrictor_PPI, GPUManager
 from dataset import ProteinDataset, LinkGraphDataset
-from models import ProtGeoGNN, GCN_PPI, GNN_PPI, NetGNN
+from models import ProtGNN, ProtGeoGNN, GCN_PPI, GNN_PPI, NetGNN
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -92,8 +92,7 @@ class EMTrainer:
                             'link_state_dict': self.link_model.state_dict()},
                             os.path.join(self.args.res_dir, f'best_em_iter_model.ckpt'))
 
-            if self.em_iter == (self.em_range.stop - 1):
-                self.final_prediction()
+        self.final_prediction()
 
     def _maximization(self, link_model=None, link_graph=None, protein_embeddings=None):
         # Protein GNN training
@@ -147,23 +146,52 @@ class EMTrainer:
         return self.link_model, link_outputs
 
     def final_prediction(self, best_em_iter=None):
-        best_em_iter = self.best_em_iter if best_em_iter is None else best_em_iter
-        final_link_model = copy.deepcopy(self.link_model)
-        final_link_model.load_state_dict(torch.load(os.path.join(self.args.res_dir, f'best_em_iter_model.ckpt'))['link_state_dict'])
-        pseudo_graph = torch.load(os.path.join(self.args.res_dir, f'best_em_iter_model.ckpt'))['link_graph']
+        torch.cuda.empty_cache()
+        outputs = torch.load(os.path.join(self.args.res_dir, f'best_em_iter_model.ckpt'), map_location='cpu')
+        
+        final_link_model = self.build_inter_model()
+        final_link_model.load_state_dict(outputs['link_state_dict'])
+        pseudo_graph = outputs['link_graph']
 
-        link_trainer = PPILinkTrainer(args=self.args,
-                                      config=self.config,
-                                      model=final_link_model,
-                                      dataset=self.link_dataset,
-                                      device=self.device,
-                                      logging=self.logging)
-    
-        if pseudo_graph is not None:
-            link_trainer.graph = pseudo_graph
+        test_dataset = LinkGraphDataset(
+                    'high-ppi', 
+                    self.inter_dataset_config, 
+                    root=os.path.join(self.inter_dataset_root, 
+                                     'high-ppi'.replace('-', '_'))
+                )
+        split_edges = test_dataset.get_edge_split()
+        train_data, test_data = split_edges['train'], split_edges['test']
+        test_edges, test_label = test_data['edge'], test_data['label']
 
-        _, test_metrics = link_trainer.evaluate(graph=pseudo_graph, save_probs=True, em_iter=best_em_iter)
+        link_preds = []
+        link_labels = []
+        link_pre_results = []
 
+        final_link_model = final_link_model.to(self.device)
+        data = pseudo_graph.to(self.device)
+        adj = data.adj_t
+        for step, perm_idx in enumerate(DataLoader(range(test_edges.size(0)), batch_size=16, shuffle=False)):
+
+            output = final_link_model(data.x, data.edge_index, adj, test_edges[perm_idx].t().to(self.device))
+            labels = test_label[perm_idx].type(torch.FloatTensor).to(self.device)
+
+            m = torch.nn.Sigmoid()
+
+            link_preds.append(m(output).cpu().data)
+            link_labels.append(labels.cpu().data)
+            link_pre_results.append((m(output) > 0.5).type(torch.FloatTensor))
+
+        link_preds = torch.cat(link_preds, dim=0)
+        link_labels = torch.cat(link_labels, dim=0)
+        link_pre_results = torch.cat(link_pre_results, dim=0)
+        torch.save(
+            {'link_preds': link_preds, 'link_labels': link_labels, 'link_pre_results': link_pre_results},
+            os.path.join(self.args.res_dir, 'test_results.pt')
+        )
+
+        pre_result = (link_preds > 0.5).type(torch.FloatTensor)
+        test_metrics = Metrictor_PPI(pre_result, link_labels, link_preds)
+        test_metrics.show_result()
         write_log(self.logging,
             "em_iter: {} Test Accuracy: {}, Recall: {}, Precision: {}, F1: {}, AUC: {}, AUPR: {}"
                 .format(best_em_iter, test_metrics.Accuracy, test_metrics.Recall, test_metrics.Precision, test_metrics.F1, test_metrics.Auc, test_metrics.Aupr))

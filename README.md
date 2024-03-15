@@ -8,15 +8,17 @@ MUSE is mainly based on the following packages:
 - python  3.9.16
 - rdkit 2023.3.1
 - numpy  1.24.3
-- pytorch  1.12.1+cu116
+- pytorch  2.0.1+cu118
 - pytorch-scatter  1.6.1
 - pytorch-cluster  2.1.1
 - torch-sparse  0.6.17
 - torch-geometric  2.3.1
 
-Also you can install the required packages follow there instructions (tested on a linux terminal):
 
-`conda env create -f environment.yaml`
+We provide a script (install.sh) to install the environment, including the extra packages (mol2vec, descriptastorus, et al), and CPU and CUDA11.8 environments are supported.
+You can install the required packages follow the instructions (tested on a linux terminal):
+
+`source install.sh cu118`
 
 
 # Dataset
@@ -30,6 +32,16 @@ The protein and drug interactions datasets used in this study are stored in `./d
 For EM training (for example, protein-protein interactions):
 ```
 python trainer_ppi.py --cfg-path configs/ppi.yaml --job-id test_run
+```
+
+drug-protein interactions:
+```
+python trainer_dpi.py --cfg-path configs/snap_dpi.yaml --job-id test_run
+```
+
+drug-drug interactions:
+```
+python trainer_ddi.py --cfg-path configs/deepddi.yaml --job-id test_run
 ```
 
 
