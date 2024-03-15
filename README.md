@@ -16,7 +16,7 @@ MUSE is mainly based on the following packages:
 
 
 We provide a script (install.sh) to install the environment, including the extra packages (mol2vec, descriptastorus, et al), and CPU and CUDA11.8 environments are supported.
-You can install the required packages follow the instructions (tested on a linux terminal):
+You can install the required packages follow the instructions (tested on a linux terminal, this step will take around 30 minutes depending on the speed of your internet bandwidth.):
 
 `source install.sh cu118`
 
@@ -29,7 +29,7 @@ The protein and drug interactions datasets used in this study are stored in `./d
 # Usage
 
 ## Protein and Drug Interaction Predictions
-For EM training (for example, protein-protein interactions):
+For EM training (for example, protein-protein interactions), this step will take around several hours based on your system, number of GPUs or CPUs and IO speed:
 ```
 python trainer_ppi.py --cfg-path configs/ppi.yaml --job-id test_run
 ```
